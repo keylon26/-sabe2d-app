@@ -35,7 +35,6 @@ st.markdown(
     }
     .plotly-notifier, .annotation-text { backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 
-
 div[data-testid="stFormSubmitButton"] > button {
     background-color: #002529 !important;
     color: #00FFFF !important;
@@ -187,7 +186,7 @@ pct_D_sismo, pct_L_sismo, pct_Lr_sismo, pct_Le_sismo, pct_L0_sismo = 100.0, 25.0
 
 if inc_sismo:
     with st.sidebar.expander("🌋 Espectro de Diseño (NSR-10)", expanded=False):
-        tipo_analisis_sismico = st.radio("Método de Análisis Sísmico", ["Dinámico Modal Espectral", "Fuerza Horizontal Equivalente"])
+        tipo_analisis_sismico = st.radio("Método de Análisis Sísmico", ["Dinámico Modal Espectral", "Fuerza Horizontal Equivalente (FHE)"])
         st.markdown("---")
         Aa = st.number_input("Aa", 0.0, 1.0, 0.20, 0.05)
         Av = st.number_input("Av", 0.0, 1.0, 0.20, 0.05)
@@ -433,6 +432,7 @@ try:
             q2_ext[noB] += float(row["q2"]) * factor
 
     q1_tot, q2_tot = q1_ext.copy(), q2_ext.copy()
+    px_tot = np.zeros(noBarras) # <-- NUEVO: Para guardar la componente axial de cargas
 
     if inc_pp:
         for i in range(noBarras):
@@ -442,12 +442,15 @@ try:
             c, s = np.cos(rad), np.sin(rad)
             wl = np.array([[c, s], [-s, c]]) @ wg
             factor_pp = factores.get("D", 1.2)
+            px_tot[i] += wl[0] * factor_pp  # <-- NUEVO: Componente axial del peso propio
             q1_tot[i] += wl[1] * factor_pp
             q2_tot[i] += wl[1] * factor_pp
 
     for noBarra in range(1, noBarras + 1):
         q1, q2 = q1_tot[noBarra - 1], q2_tot[noBarra - 1]
-        if q1 == 0 and q2 == 0: continue
+        px = px_tot[noBarra - 1] # <-- NUEVO: Rescatamos la carga axial
+
+        if q1 == 0 and q2 == 0 and px == 0: continue # <-- MODIFICADO: Continuar si hay cortante o axial
 
         nudoInicio, nudoFin, L = int(barras[noBarra - 1, 1]), int(barras[noBarra - 1, 2]), longBarras[noBarra - 1]
 
@@ -461,7 +464,13 @@ try:
             f2, f3 = 7 / 20 * (q1 - q2) * L + q2 * L / 2, (q1 - q2) / 20 * L**2 + q2 * L**2 / 12
             f5, f6 = 3 / 20 * (q1 - q2) * L + q2 * L / 2, -(q1 - q2) / 30 * L**2 - q2 * L**2 / 12
 
-        fLocal[:, :, noBarra - 1] = np.array([0.0, f2, f3, 0.0, f5, f6]).reshape((6, 1))
+        # <-- NUEVO: Cálculo de fuerzas de empotramiento perfecto axiales
+        f1 = px * L / 2
+        f4 = px * L / 2
+
+        # <-- MODIFICADO: Reemplazamos los "0.0" por f1 y f4
+        fLocal[:, :, noBarra - 1] = np.array([f1, f2, f3, f4, f5, f6]).reshape((6, 1))
+        
         ang = angulosBarras[noBarra - 1]
         cs, sn = np.cos(np.radians(ang)), np.sin(np.radians(ang))
         T_mat = np.array([
@@ -1392,5 +1401,3 @@ try:
 
 except Exception as e:
     st.error(f"❌ Revisa los datos de entrada para continuar con el cálculo. Detalle: {e}")
-
-    # streamlit run "ANALISIS 2D cero.py"
